@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>山火应急撤离编排系统</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root {
+    --bg:#17191f; --panel:#1f232c; --panel2:#262b36; --line:#353c4a;
+    --txt:#e8eaee; --muted:#9aa3b2; --accent:#ff7a45; --accent2:#3b82f6;
+    --ok:#34d399; --warn:#fbbf24; --bad:#f87171; --purple:#a78bfa;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+         background:var(--bg); color:var(--txt); font-size:13px; }
+  header { display:flex; align-items:center; gap:14px; padding:10px 16px;
+           background:#12141a; border-bottom:1px solid var(--line); }
+  header h1 { font-size:16px; margin:0; }
+  header .ver { color:var(--muted); font-size:12px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px;
+          background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  nav { display:flex; gap:4px; margin-left:20px; }
+  nav button { background:transparent; border:1px solid transparent; color:var(--muted);
+               padding:6px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
+  nav button.active { background:var(--panel2); color:var(--txt); border-color:var(--line); }
+  .spacer { flex:1; }
+  main { padding:14px; }
+  .tab { display:none; } .tab.active { display:block; }
+  .grid2 { display:grid; grid-template-columns: 340px 1fr; gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:12px 14px; margin-bottom:12px; }
+  .card h3 { margin:0 0 10px; font-size:13px; display:flex; align-items:center; gap:8px; }
+  #map { height:calc(100vh - 120px); border-radius:10px; border:1px solid var(--line); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);
+          vertical-align:top; }
+  th { color:var(--muted); font-weight:500; position:sticky; top:0; background:var(--panel); }
+  tr.departed td { color:var(--ok); }
+  .tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:11px;
+         line-height:18px; margin:1px 2px; }
+  .t-burning { background:#5b1a1a; color:#fecaca; }
+  .t-threatened { background:#5c4413; color:#fde68a; }
+  .t-watch { background:#1e3a5f; color:#bfdbfe; }
+  .t-safe, .t-open, .t-available, .t-accepting { background:#14402b; color:#a7f3d0; }
+  .t-closed, .t-broken, .t-paused { background:#5b1a1a; color:#fecaca; }
+  .t-departed { background:#14402b; color:#a7f3d0; }
+  .t-assist { background:#4c1d6b; color:#e9d5ff; }
+  button.btn { background:var(--accent); color:#1a1207; border:0; border-radius:6px;
+               padding:7px 14px; font-weight:600; cursor:pointer; font-size:12px; }
+  button.btn:hover { filter:brightness(1.1); }
+  button.btn.ghost { background:var(--panel2); color:var(--txt); border:1px solid var(--line); }
+  button.btn.blue { background:var(--accent2); color:#fff; }
+  button.btn.small { padding:3px 9px; font-size:11px; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  select,input,textarea { background:#151820; border:1px solid var(--line); color:var(--txt);
+          border-radius:6px; padding:6px 8px; font-size:12px; width:100%; }
+  label { display:block; color:var(--muted); font-size:11px; margin:8px 0 3px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .muted { color:var(--muted); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .scroll { max-height:calc(100vh - 180px); overflow:auto; }
+  .batch-col { min-width:150px; vertical-align:top; }
+  .batch-box { border:1px dashed var(--line); border-radius:8px; padding:8px; min-height:60px;
+               background:rgba(255,255,255,.015); }
+  .hh-chip { display:block; background:var(--panel2); border:1px solid var(--line);
+             border-radius:6px; padding:4px 8px; margin:4px 0; font-size:11px; }
+  .hh-chip.departed { border-color:#1f6e4f; }
+  .plans-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:12px; }
+  .plan-card { position:relative; }
+  .plan-card.published { border-color:#1f6e4f; box-shadow:0 0 0 1px #1f6e4f inset; }
+  .badge { position:absolute; top:10px; right:12px; }
+  .reason { color:#fca5a5; font-size:11px; margin:2px 0; }
+  .bottleneck { background:#2a1818; border:1px solid #5b2a2a; border-radius:6px;
+                padding:6px 10px; margin:6px 0; color:#fecaca; font-size:12px; }
+  .toast { position:fixed; right:20px; bottom:20px; z-index:9999; display:flex;
+           flex-direction:column; gap:8px; }
+  .toast div { background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+               padding:10px 14px; max-width:380px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  .toast .err { border-color:#7f1d1d; } .toast .okm { border-color:#1f6e4f; }
+  .legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; font-size:11px; color:var(--muted);}
+  .legend span { display:inline-flex; align-items:center; gap:4px; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .shelterbar { height:6px; background:#3a2a15; border-radius:3px; margin-top:3px; overflow:hidden;}
+  .shelterbar > div { height:100%; background:var(--ok); }
+  .shelterbar > div.full { background:var(--bad); }
+  pre.json { white-space:pre-wrap; word-break:break-all; font-size:11px; color:var(--muted);
+             max-height:220px; overflow:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔥 山火应急撤离编排系统</h1>
+  <span class="pill" id="versionPill">v-</span>
+  <nav>
+    <button data-tab="map" class="active">态势地图</button>
+    <button data-tab="batches">批次与命令</button>
+    <button data-tab="plans">方案比较</button>
+    <button data-tab="resources">资源与名单</button>
+    <button data-tab="import">导入 / 事件</button>
+  </nav>
+  <div class="spacer"></div>
+  <span class="pill" id="orderPill">无活动命令</span>
+  <button class="btn ghost small" onclick="loadAll()">刷新</button>
+</header>
+
+<div class="toast" id="toast"></div>
+
+<main>
+<!-- ===================== 地图 ===================== -->
+<section class="tab active" id="tab-map">
+  <div class="grid2">
+    <div>
+      <div class="card">
+        <h3>威胁网格</h3>
+        <div id="cellList"></div>
+      </div>
+      <div class="card">
+        <h3>避难点占用（已出发床位锁定）</h3>
+        <div id="shelterList"></div>
+      </div>
+      <div class="card">
+        <h3>车辆</h3>
+        <div id="vehicleList"></div>
+      </div>
+      <div class="card">
+        <h3>图例</h3>
+        <div class="legend">
+          <span><i class="dot" style="background:#f87171"></i>大火</span>
+          <span><i class="dot" style="background:#fbbf24"></i>受威胁</span>
+          <span><i class="dot" style="background:#60a5fa"></i>观察</span>
+          <span><i class="dot" style="background:#34d399"></i>避难点</span>
+          <span><i class="dot" style="background:#a78bfa"></i>车辆</span>
+          <span>— 粗实线=开放道路，红虚线=封闭道路</span>
+        </div>
+      </div>
+    </div>
+    <div id="map"></div>
+  </div>
+</section>
+
+<!-- ===================== 批次 ===================== -->
+<section class="tab" id="tab-batches">
+  <div class="card">
+    <h3>已发布撤离令 <span id="orderMeta" class="muted"></span></h3>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" id="departAllBtn">全部待出发批次依次离场</button>
+      <span class="muted">车辆离场后，该批次家庭与目的地床位占用即视为已承诺，
+        后续重新规划不能再改动这些家庭。</span>
+    </div>
+    <div id="batchBoard" class="row" style="align-items:flex-start; flex-wrap:wrap; gap:10px;"></div>
+  </div>
+  <div class="card">
+    <h3>承诺记录（已出发家庭）</h3>
+    <div class="scroll" style="max-height:300px"><table id="departedTable"></table></div>
+  </div>
+</section>
+
+<!-- ===================== 方案比较 ===================== -->
+<section class="tab" id="tab-plans">
+  <div class="card">
+    <h3>生成候选方案</h3>
+    <div class="row">
+      <div style="flex:1">
+        <label>优化画像</label>
+        <select id="profileSel">
+          <option value="balanced">均衡（推荐）</option>
+          <option value="urgent">优先紧迫网格尽早撤离</option>
+          <option value="shortest">最短行驶里程</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label>指挥员</label><input id="plannerName" value="值班指挥员"/>
+      </div>
+      <div><button class="btn" id="runPlanBtn">运行规划（CP-SAT）</button></div>
+    </div>
+    <p class="muted" style="margin:8px 0 0">家庭整体分配；约束含床位、车座、无障碍车辆/避难点、
+      道路批次容量与开放路网可达性。火线扩大/道路封闭/车辆故障/避难点暂停后，
+      重算只覆盖<b>未出发</b>家庭。</p>
+  </div>
+  <div id="planResult"></div>
+  <div class="plans-grid" id="plansGrid"></div>
+</section>
+
+<!-- ===================== 资源/名单 ===================== -->
+<section class="tab" id="tab-resources">
+  <div class="card"><h3>家庭名册（不可拆分单元）</h3>
+    <div class="scroll"><table id="hhTable"></table></div></div>
+  <div class="card"><h3>道路通行状态</h3>
+    <table id="edgeTable"></table></div>
+</section>
+
+<!-- ===================== 导入/事件 ===================== -->
+<section class="tab" id="tab-import">
+  <div class="grid2">
+    <div>
+      <div class="card">
+        <h3>快速态势事件</h3>
+        <label>道路临时封闭 / 恢复</label>
+        <div class="row">
+          <select id="evRoad"></select>
+          <select id="evRoadStatus"><option value="closed">封闭</option><option value="open">恢复通行</option></select>
+          <button class="btn small" onclick="roadEvent()">应用</button>
+        </div>
+        <label>车辆故障 / 恢复</label>
+        <div class="row">
+          <select id="evVeh"></select>
+          <select id="evVehStatus"><option value="broken">故障停用</option><option value="available">恢复可用</option></select>
+          <button class="btn small" onclick="vehEvent()">应用</button>
+        </div>
+        <label>避难点暂停 / 恢复接收</label>
+        <div class="row">
+          <select id="evShel"></select>
+          <select id="evShelStatus"><option value="false">暂停接收</option><option value="true">恢复接收</option></select>
+          <button class="btn small" onclick="shelEvent()">应用</button>
+        </div>
+        <label>火线范围更新（网格威胁等级）</label>
+        <div class="row">
+          <select id="evCell"></select>
+          <select id="evCellThreat">
+            <option value="watch">观察</option><option value="threatened">受威胁</option>
+            <option value="burning">大火逼近</option><option value="safe">安全</option>
+          </select>
+          <button class="btn small" onclick="fireEvent()">应用</button>
+        </div>
+        <p class="muted">事件后所有候选方案的版本基线过期，发布时会被拒绝并提示重新规划。</p>
+      </div>
+      <div class="card">
+        <h3>演示环境</h3>
+        <button class="btn ghost" onclick="resetDemo()">重置为初始演示数据</button>
+        <h3 style="margin-top:14px">事件日志</h3>
+        <div id="eventLog" class="scroll" style="max-height:260px"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>批量导入（JSON，重复 ID 为更新而非重复登记）</h3>
+      <textarea id="importJson" rows="20" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn blue" onclick="doImport()">导入</button>
+        <button class="btn ghost small" onclick="fillImportExample()">填入示例片段</button>
+      </div>
+      <p class="muted">可包含 households / vehicles / shelters / edges / cells 任意数组。
+        注意：家庭不可被安排自行经过已关闭路段——路径只沿开放道路计算。</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

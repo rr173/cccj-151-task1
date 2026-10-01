@@ -1,0 +1,15 @@
+services:
+  evac:
+    build: .
+    image: wildfire-evac:latest
+    container_name: wildfire-evac
+    ports:
+      - "8000:8000"
+    volumes:
+      - evac-data:/data
+    environment:
+      - EVAC_DB=/data/evac.db
+    restart: unless-stopped
+
+volumes:
+  evac-data:
